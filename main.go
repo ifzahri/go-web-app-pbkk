@@ -9,8 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"time"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/joho/godotenv"
 )
 
 var db *sql.DB
@@ -21,26 +23,46 @@ type Page struct {
 	Body  []byte
 }
 
+func loadEnv() error {
+	err := godotenv.Load()
+	if err != nil {
+		log.Println("Error loading .env file, using system environment")
+	}
+	return nil
+}
+
 func initDB() error {
+	loadEnv()
+
 	cfg := mysql.Config{
-		User:   os.Getenv("root"),
-		Passwd: os.Getenv("root"),
+		User:   os.Getenv("DB_USER"),
+		Passwd: os.Getenv("DB_PASS"),
 		Net:    "tcp",
-		Addr:   "127.0.0.1:3306",
-		DBName: "wiki",
+		Addr: fmt.Sprintf("%s:%s",
+			os.Getenv("DB_HOST"),
+			os.Getenv("DB_PORT")),
+		DBName: os.Getenv("DB_NAME"),
+
+		ParseTime:            true,
+		AllowNativePasswords: true,
 	}
 
 	var err error
 	db, err = sql.Open("mysql", cfg.FormatDSN())
 	if err != nil {
-		return err
+		return fmt.Errorf("error opening database: %v", err)
 	}
+
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(25)
+	db.SetConnMaxLifetime(5 * time.Minute)
 
 	pingErr := db.Ping()
 	if pingErr != nil {
-		return pingErr
+		return fmt.Errorf("error connecting to the database: %v", pingErr)
 	}
-	fmt.Println("Connected to database!")
+
+	log.Println("Successfully connected to database")
 	return nil
 }
 
@@ -125,7 +147,7 @@ func main() {
 
 	err := initDB()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Database initialization failed: %v", err)
 	}
 	defer db.Close()
 
