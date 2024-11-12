@@ -1,11 +1,12 @@
 <!DOCTYPE html>
 <html>
-<head>
+  <head>
     <title>{{.Title}}</title>
-</head>
-<body>
+  </head>
+  <body>
     <h1>{{.Title}}</h1>
-    <div>{{.Body}}</div>
-    <a href="/edit/{{.Title}}">Edit</a>
-</body>
+    <p>[<a href="/edit/{{.Title}}">edit</a>]</p>
+
+    <div>{{printf "%s" .Body}}</div>
+  </body>
 </html>
