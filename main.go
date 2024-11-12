@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"html/template"
 	"log"
@@ -9,16 +8,16 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"time"
 
-	"github.com/go-sql-driver/mysql"
 	"github.com/joho/godotenv"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 )
 
-var db *sql.DB
+var db *gorm.DB
 
 type Page struct {
-	ID    int64
+	ID    uint `gorm:"primaryKey"`
 	Title string
 	Body  []byte
 }
@@ -34,56 +33,36 @@ func loadEnv() error {
 func initDB() error {
 	loadEnv()
 
-	cfg := mysql.Config{
-		User:   os.Getenv("DB_USER"),
-		Passwd: os.Getenv("DB_PASS"),
-		Net:    "tcp",
-		Addr: fmt.Sprintf("%s:%s",
-			os.Getenv("DB_HOST"),
-			os.Getenv("DB_PORT")),
-		DBName: os.Getenv("DB_NAME"),
-
-		ParseTime:            true,
-		AllowNativePasswords: true,
-	}
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true",
+		os.Getenv("DB_USER"),
+		os.Getenv("DB_PASS"),
+		os.Getenv("DB_HOST"),
+		os.Getenv("DB_PORT"),
+		os.Getenv("DB_NAME"))
 
 	var err error
-	db, err = sql.Open("mysql", cfg.FormatDSN())
+	db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return fmt.Errorf("error opening database: %v", err)
 	}
 
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(25)
-	db.SetConnMaxLifetime(5 * time.Minute)
+	log.Println("Successfully connected to database")
 
-	pingErr := db.Ping()
-	if pingErr != nil {
-		return fmt.Errorf("error connecting to the database: %v", pingErr)
+	err = db.AutoMigrate(&Page{})
+	if err != nil {
+		return fmt.Errorf("error migrating database: %v", err)
 	}
 
-	log.Println("Successfully connected to database")
 	return nil
 }
 
 func (p *Page) save() error {
-
-	var err error
-	if p.ID > 0 {
-		_, err = db.Exec("UPDATE pages SET title = ?, body = ? WHERE id = ?", p.Title, p.Body, p.ID)
-	} else {
-		result, err := db.Exec("INSERT INTO pages (title, body) VALUES (?, ?)", p.Title, p.Body)
-		if err != nil {
-			return err
-		}
-		p.ID, err = result.LastInsertId()
-	}
-	return err
+	return db.Save(p).Error
 }
 
 func loadPage(title string) (*Page, error) {
 	var p Page
-	err := db.QueryRow("SELECT id, title, body FROM pages WHERE title = ?", title).Scan(&p.ID, &p.Title, &p.Body)
+	err := db.Where("title = ?", title).First(&p).Error
 	if err != nil {
 		return nil, err
 	}
@@ -144,12 +123,10 @@ func makeHandler(fn func(http.ResponseWriter, *http.Request, string)) http.Handl
 }
 
 func main() {
-
 	err := initDB()
 	if err != nil {
 		log.Fatalf("Database initialization failed: %v", err)
 	}
-	defer db.Close()
 
 	http.HandleFunc("/view/", makeHandler(viewHandler))
 	http.HandleFunc("/edit/", makeHandler(editHandler))
